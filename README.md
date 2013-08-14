@@ -20,6 +20,10 @@ Installation
 	
 	goose up
 
+4. Set db configuration in .env
+	
+	cp env.example .env
+
 
 Reference
 ---------
