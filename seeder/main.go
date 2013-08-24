@@ -1,6 +1,7 @@
 package main
 
 import (
+	"admin/access"
 	"admin/uuids"
 	"code.google.com/p/go.crypto/bcrypt"
 	"database/sql"
@@ -51,7 +52,7 @@ func main() {
 }
 
 func createGroups() {
-	db.Exec(`DELETE FROM users`)
+	db.Exec(`DELETE FROM groups`)
 	log.Println("Creating Groups...")
 	for _, name := range []string{"Administrators", "Account managers", "Developers"} {
 		id, err := uuids.NewUUID4()
@@ -124,7 +125,26 @@ func createDashboards() {
 }
 
 func createPermissions() {
+	tx, _ := db.Begin()
+	defer tx.Commit()
 	db.Exec(`DELETE FROM dashboards`)
 	log.Println("Creating Permissions..")
+
+	rows, err := db.Query(`SELECT "id" FROM "groups"`)
+	if err != nil {
+		panic(err)
+	}
+	defer rows.Close()
+
+	var groups [3]string
+
+	for i := 0; rows.Next(); i++ {
+		log.Println(strconv.Itoa(i))
+		rows.Scan(&groups[i])
+	}
+
+	for _, group := range groups {
+		access.Grant(tx, group, "", "dashboards", "")
+	}
 
 }
