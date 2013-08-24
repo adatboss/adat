@@ -47,6 +47,7 @@ func main() {
 	createGroups()
 	createUsers()
 	createDashboards()
+	createPermissions()
 }
 
 func createGroups() {
@@ -98,7 +99,7 @@ func createUsers() {
 func createDashboards() {
 	urlizerRegexp := regexp.MustCompile("[^a-zA-Z0-9-]+")
 	db.Exec(`DELETE FROM dashboards`)
-	log.Println("Creating Dashboards")
+	log.Println("Creating Dashboards...")
 
 	categories := map[string][]string{
 		"Website":   []string{"Page impressions", "New visitors", "Load speed"},
@@ -120,4 +121,10 @@ func createDashboards() {
 			log.Println(dashboard + " dashboard created.")
 		}
 	}
+}
+
+func createPermissions() {
+	db.Exec(`DELETE FROM dashboards`)
+	log.Println("Creating Permissions..")
+
 }

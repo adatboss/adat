@@ -1,6 +1,7 @@
 package access
 
 import (
+	"admin/qu"
 	"admin/uuids"
 	"database/sql"
 )
@@ -41,4 +42,24 @@ func HasPermission(tx *sql.Tx, uid, method, objType, objId string) bool {
 	}
 
 	return n > 0
+}
+
+func Grant(tx *sql.Tx, group, method, objType, objId string) bool {
+	fields := map[string]interface{}{"group_id": group}
+	if method != "" {
+		fields["method"] = method
+	}
+	if objType != "" {
+		fields["object_type"] = objType
+	}
+	if objId != "" {
+		fields["object_id"] = objId
+	}
+	insert, vals := qu.InsertClause(fields)
+	_, err := tx.Exec(`INSERT INTO "permissions" `+insert, vals...)
+	if err != nil {
+		panic(err)
+	}
+
+	return true
 }
