@@ -9,6 +9,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -45,6 +46,7 @@ func main() {
 
 	createGroups()
 	createUsers()
+	createDashboards()
 }
 
 func createGroups() {
@@ -90,5 +92,32 @@ func createUsers() {
 		INSERT INTO "users_to_groups" (user_id, group_id)
 		VALUES ($1, (SELECT id FROM groups OFFSET RANDOM() * (SELECT COUNT(*) FROM groups) - 1 LIMIT 1))`, id)
 		log.Println(fullName + " <" + email + "> created.")
+	}
+}
+
+func createDashboards() {
+	urlizerRegexp := regexp.MustCompile("[^a-zA-Z0-9-]+")
+	db.Exec(`DELETE FROM dashboards`)
+	log.Println("Creating Dashboards")
+
+	categories := map[string][]string{
+		"Website":   []string{"Page impressions", "New visitors", "Load speed"},
+		"Orders":    []string{"Total orders", "Orders per category", "Delivered orders"},
+		"Customers": []string{"Emails from customers"},
+		"Marketing": []string{"New followers", "Twitter mentions"},
+	}
+
+	for category, dashboards := range categories {
+		for position, dashboard := range dashboards {
+			id, err := uuids.NewUUID4()
+			if err != nil {
+				panic(err)
+			}
+			slug := urlizerRegexp.ReplaceAllString(strings.ToLower(dashboard), "-")
+			db.Exec(`INSERT INTO "dashboards" (id, title, slug, category, position, created, creator)
+			VALUES ($1, $2, $3, $4, $5, NOW(), (SELECT id FROM users LIMIT 1))`,
+				id, dashboard, slug, category, position)
+			log.Println(dashboard + " dashboard created.")
+		}
 	}
 }
