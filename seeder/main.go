@@ -116,9 +116,13 @@ func createDashboards() {
 				panic(err)
 			}
 			slug := urlizerRegexp.ReplaceAllString(strings.ToLower(dashboard), "-")
-			db.Exec(`INSERT INTO "dashboards" (id, title, slug, category, position, created, creator)
-			VALUES ($1, $2, $3, $4, $5, NOW(), (SELECT id FROM users LIMIT 1))`,
+			_, err = db.Exec(`INSERT INTO "dashboards" (id, title, slug, category, position, created, creator) VALUES ($1, $2, $3, $4, $5, NOW(), (SELECT id FROM users LIMIT 1))`,
 				id, dashboard, slug, category, position)
+			log.Println(err)
+			log.Println(id)
+			if err != nil {
+				panic(err)
+			}
 			log.Println(dashboard + " dashboard created.")
 		}
 	}
@@ -127,7 +131,7 @@ func createDashboards() {
 func createPermissions() {
 	tx, _ := db.Begin()
 	defer tx.Commit()
-	db.Exec(`DELETE FROM dashboards`)
+	db.Exec(`DELETE FROM permissions`)
 	log.Println("Creating Permissions..")
 
 	rows, err := db.Query(`SELECT "id" FROM "groups"`)
@@ -145,6 +149,7 @@ func createPermissions() {
 
 	for _, group := range groups {
 		access.Grant(tx, group, "", "dashboard", "")
+		access.Grant(tx, group, "", "dashboards", "")
 		access.Grant(tx, group, "", "user", "")
 		access.Grant(tx, group, "", "users", "")
 	}
