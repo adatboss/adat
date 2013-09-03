@@ -1,11 +1,11 @@
-package uuids
+package uuid
 
 import (
 	"crypto/rand"
 	"io"
 )
 
-func NewUUID4() (string, error) {
+func New4() (string, error) {
 	var (
 		rnd  [16]byte
 		buff [36]byte
@@ -36,7 +36,7 @@ func NewUUID4() (string, error) {
 	return string(buff[:]), nil
 }
 
-func ValidUUID(id string) bool {
+func Valid(id string) bool {
 	if len(id) != 36 {
 		return false
 	}

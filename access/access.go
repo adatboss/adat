@@ -2,18 +2,18 @@ package access
 
 import (
 	"admin/qu"
-	"admin/uuids"
+	"admin/uuid"
 	"database/sql"
 )
 
 func HasPermission(tx *sql.Tx, uid, method, objType, objId string) bool {
-	if !uuids.ValidUUID(uid) {
+	if !uuid.Valid(uid) {
 		return false
 	}
 
 	objIdQ, params := "", []interface{}{uid, method, objType}
 	if objId != "" {
-		if uuids.ValidUUID(objId) {
+		if uuid.Valid(objId) {
 			objIdQ = `"object_id" = $4 OR`
 			params = append(params, objId)
 		} else {
