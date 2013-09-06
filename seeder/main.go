@@ -150,6 +150,8 @@ func createPermissions() {
 	for _, group := range groups {
 		access.Grant(tx, group, "", "dashboard", "")
 		access.Grant(tx, group, "", "dashboards", "")
+		access.Grant(tx, group, "", "widget", "")
+		access.Grant(tx, group, "", "widgets", "")
 		access.Grant(tx, group, "", "user", "")
 		access.Grant(tx, group, "", "users", "")
 	}
