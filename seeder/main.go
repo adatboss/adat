@@ -2,7 +2,7 @@ package main
 
 import (
 	"admin/access"
-	"admin/uuids"
+	"admin/uuid"
 	"code.google.com/p/go.crypto/bcrypt"
 	"database/sql"
 	"github.com/joho/godotenv"
@@ -55,7 +55,7 @@ func createGroups() {
 	db.Exec(`DELETE FROM groups`)
 	log.Println("Creating Groups...")
 	for _, name := range []string{"Administrators", "Account managers", "Developers"} {
-		id, err := uuids.NewUUID4()
+		id, err := uuid.New4()
 		if err != nil {
 			panic(err)
 		}
@@ -77,7 +77,7 @@ func createUsers() {
 		email := strings.ToLower(firstName) + "@example.com"
 		fullName := firstName + " " + lastNames[rand.Intn(len(lastNames))]
 
-		id, err := uuids.NewUUID4()
+		id, err := uuid.New4()
 		if err != nil {
 			panic(err)
 		}
@@ -111,7 +111,7 @@ func createDashboards() {
 
 	for category, dashboards := range categories {
 		for position, dashboard := range dashboards {
-			id, err := uuids.NewUUID4()
+			id, err := uuid.New4()
 			if err != nil {
 				panic(err)
 			}
