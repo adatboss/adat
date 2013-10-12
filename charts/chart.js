@@ -29,6 +29,7 @@ function Chart(svg, fetcherFactory, clockSkew) {
 			yLocked: false,
 
 			retry: 10e3,
+			autorefresh: true,
 
 			data: [
 				{
@@ -83,6 +84,11 @@ function Chart(svg, fetcherFactory, clockSkew) {
 		xChanged = false,
 		yChanged = false,
 		stopWatching = null;
+
+	clockSkew = +clockSkew;
+	if (isNaN(clockSkew)) {
+		clockSkew = 0;
+	}
 
 	createElements();
 	showError(null);
@@ -414,7 +420,7 @@ function Chart(svg, fetcherFactory, clockSkew) {
 
 		length = (until - from) / settings.granularity + 1;
 
-		fetcher(from, length, function (err, d) {
+		fetcher.query(from, length, function (err, d) {
 			if (fetcherN != N) {
 				return;
 			}
@@ -442,7 +448,9 @@ function Chart(svg, fetcherFactory, clockSkew) {
 		var channels = settings.data.map(function (e) { return e.channel; });
 		fetcher = fetcherFactory(channels, settings.granularity);
 		fetcherN++;
-		startWatching();
+		if (settings.autorefresh) {
+			startWatching();
+		}
 		values = [];
 		ts = null;
 	}
@@ -458,6 +466,9 @@ function Chart(svg, fetcherFactory, clockSkew) {
 		stopWatching = fetcher.watch(offset, function (ts) {
 			var d;
 
+			clockSkew += settings.granularity + ts - now().getTime();
+			console.log(clockSkew);
+	
 			if (fetcherN != N) {
 				return;
 			}

@@ -113,6 +113,18 @@ function liveWatch(sources, callback) {
 	return watchData(urls, nFields, wsCallback(sources, callback));
 }
 
+function clockSkew(callback) {
+	var url = config.httpApi + "?type=clockSkew" + "&ts=" + (+new Date);
+
+	fetchData([url], [0], function (err, results) {
+		if (err !== null) {
+			callback(err, null);
+			return;
+		}
+		callback(null, results[0][0][0]);
+	});
+}
+
 function wsCallback(sources, callback) {
 	return function (results) {
 		var merged = mergeResults(results, sources);
@@ -434,7 +446,7 @@ function cache(sources, granularity) {
 		}
 	}
 
-	query.watch = function (offset, callback) {
+	function watch(offset, callback) {
 		if (sources.length == 0) {
 			return null;
 		}
@@ -456,7 +468,7 @@ function cache(sources, granularity) {
 		});
 	};
 
-	return query;
+	return {query: query, watch: watch};
 
 	function needsRefill(from, length) {
 		return cacheData === null ||
@@ -532,7 +544,8 @@ return {
 	archiveWatch: archiveWatch,
 	live: live,
 	liveWatch: liveWatch,
-	cache: cache
+	cache: cache,
+	clockSkew: clockSkew
 };
 
 }();
