@@ -254,11 +254,13 @@ function Chart(svg, fetcherFactory, liveFetcherFactory, clockSkew) {
 			
 		if (yMin === null) {
 			yMin = Number.POSITIVE_INFINITY;
-			for (i = 0; i < settings.data.length; i++) {
-				if (settings.data[i].autoY) {
-					for (j = 0; j < values[i].length; j++) {
-						if (values[i][j] < yMin) {
-							yMin = values[i][j];
+			if (typeof values[0] != "undefined") {
+				for (i = 0; i < settings.data.length; i++) {
+					if (settings.data[i].autoY) {
+						for (j = 0; j < values[i].length; j++) {
+							if (values[i][j] < yMin) {
+								yMin = values[i][j];
+							}
 						}
 					}
 				}
@@ -267,11 +269,13 @@ function Chart(svg, fetcherFactory, liveFetcherFactory, clockSkew) {
 
 		if (yMax === null) {
 			yMax = Number.NEGATIVE_INFINITY;
-			for (i = 0; i < settings.data.length; i++) {
-				if (settings.data[i].autoY) {
-					for (j = 0; j < values[i].length; j++) {
-						if (values[i][j] > yMax) {
-							yMax = values[i][j];
+			if (typeof values[0] != "undefined") {
+				for (i = 0; i < settings.data.length; i++) {
+					if (settings.data[i].autoY) {
+						for (j = 0; j < values[i].length; j++) {
+							if (values[i][j] > yMax) {
+								yMax = values[i][j];
+							}
 						}
 					}
 				}
@@ -577,6 +581,7 @@ function Chart(svg, fetcherFactory, liveFetcherFactory, clockSkew) {
 		yChanged = false;
 		resetYDomain();
 		redrawYGrid();
+		redrawLines();
 		reload();
 	}
 
