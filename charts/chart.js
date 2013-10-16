@@ -1,16 +1,15 @@
-statsd.config.httpApi = "http://kozo.dyndns.info:5999/";
-statsd.config.wsApi = "ws://kozo.dyndns.info:5999/";
+statsd.config.httpApi = "http://192.168.1.101:5999/";
+statsd.config.wsApi = "ws://192.168.1.101:5999/";
 statsd.config.timeout = 1000;
 
-function Chart(svg, fetcherFactory, clockSkew) {
+function Chart(svg, fetcherFactory, liveFetcherFactory, clockSkew) {
 	var	svg = d3.select(svg),
-		settings = {
+		defaultSettings = {
 			width: 640,
 			height: 480,
 			backgroundColor: "#f8f8f8",
 			fontSize: 12,
 			fontFamily: "sans-serif",
-
 			granularity: 60e3,
 			xMax: null,
 			xCount: 60,
@@ -20,56 +19,25 @@ function Chart(svg, fetcherFactory, clockSkew) {
 			xLocked: false,
 			timeFormat1: "%m/%d/%y",
 			timeFormat2: "%I:%M %p",
-
 			yMin: 0,
 			yMax: null,
 			yTicks: 5,
 			yGridColor: "#888",
 			yLabelColor: "#000",
 			yLocked: false,
-
 			retry: 10e3,
 			autorefresh: true,
-
-			data: [
-				{
-					label: "Test 0",
-					channel: "test0:counter",
-					autoY: true,
-					color: "red",
-					width: 2
-				},
-				{
-					label: "Test 1, counter",
-					channel: "test1:counter",
-					autoY: true,
-					color: "green",
-					width: 2
-				},
-				{
-					label: "Test 1, gauge",
-					channel: "test1:gauge",
-					autoY: true,
-					color: "orange",
-					width: 2
-				},
-				{
-					label: "Test 2",
-					channel: "test2:avg",
-					autoY: true,
-					color: "lightblue",
-					width: 10
-				},
-				{
-					label: "Test 2 (cnt)",
-					channel: "test2:avg",
-					autoY: true,
-					color: "gray",
-					width: 2
-				}
-			]
+			data: []
+		},
+		defaultData = {
+			label: "?",
+			channel: ".",
+			autoY: true,
+			color: "#f40",
+			width: 1
 		},
 		margin = {t: 0, r: 0, b: 30, l: 50},
+		settings,
 		width,
 		height,
 		xScale = d3.time.scale(),
@@ -83,22 +51,26 @@ function Chart(svg, fetcherFactory, clockSkew) {
 		yAnchor = null,
 		xChanged = false,
 		yChanged = false,
-		stopWatching = null;
+		stopWatching = null,
+		lastUpdate = null;
 
-	clockSkew = +clockSkew;
-	if (isNaN(clockSkew)) {
-		clockSkew = 0;
-	}
+	this.settings = getsetSettings;
 
+	clockSkew |= 0;
+	setSettings(defaultSettings);
 	createElements();
-	showError(null);
-	updateSize();
-	setBackgroundColor();
-	resetXDomain();
-	redrawXGrid();
-	redrawYGrid();
-	resetData();
-	reload();
+	init();
+
+	function init() {
+		showError(null);
+		updateSize();
+		setBackgroundColor();
+		resetXDomain();
+		redrawXGrid();
+		redrawYGrid();
+		resetData();
+		reload();
+	}
 
 	function createElements() {
 		var clipId = "clip-" + (+now()) + "-" + Math.ceil(Math.random() * 1e9);
@@ -445,8 +417,16 @@ function Chart(svg, fetcherFactory, clockSkew) {
 	}
 
 	function resetData() {
-		var channels = settings.data.map(function (e) { return e.channel; });
-		fetcher = fetcherFactory(channels, settings.granularity);
+		var channels = settings.data.map(function (e) { return e.channel; }),
+			ff;
+
+		if (settings.granularity != 1e3) {
+			ff = fetcherFactory;
+		} else {
+			ff = liveFetcherFactory;
+		}
+
+		fetcher = ff(channels, settings.granularity);
 		fetcherN++;
 		if (settings.autorefresh) {
 			startWatching();
@@ -464,23 +444,32 @@ function Chart(svg, fetcherFactory, clockSkew) {
 		}
 
 		stopWatching = fetcher.watch(offset, function (ts) {
-			var d;
+			var d, t;
 
 			clockSkew += settings.granularity + ts - now().getTime();
-			console.log(clockSkew);
 	
 			if (fetcherN != N) {
 				return;
 			}
 
-			if (!xChanged) {
-				resetXDomain();
+			if (settings.granularity != 1e3) {
+				if (!xChanged) {
+					resetXDomain();
+					redrawXGrid();
+					redrawLines();
+				}
+
+				d = xScale.domain();
+				if (ts > d[0] && ts < d[1]) {
+					reload();
+				}
+			} else {
+				d = xScale.domain();
+				t = lastUpdate != null ? ts - lastUpdate : 1e3;
+				lastUpdate = ts;
+				xScale.domain([+d[0] + t, +d[1] + t]);
 				redrawXGrid();
 				redrawLines();
-			}
-
-			d = xScale.domain();
-			if (ts > d[0] && ts < d[1]) {
 				reload();
 			}
 		});
@@ -647,9 +636,82 @@ function Chart(svg, fetcherFactory, clockSkew) {
 		return s + a + u;
 	}
 
+	function copyObj(src, dst, def) {
+		if (def === null) {
+			def = src;
+		}
+		for (var k in def) {
+			if (typeof src[k] != "undefined") {
+				dst[k] = src[k];
+			} else {
+				dst[k] = def[k];
+			}
+		}
+		return dst;
+	}
+
+	function getSettings() {
+		var st = copyObj(settings, {}, null),
+			i;
+
+		st.data = [];
+		for (i = 0; i < settings.data.length; i++) {
+			st.data[i] = copyObj(settings.data[i], {}, null);
+		}
+
+		return st;
+	}
+
+	function setSettings(s) {
+		var st = copyObj(s, {}, defaultSettings),
+			i;
+
+		st.data = [];
+		if (typeof s.data != "undefined") {
+			for (i = 0; i < s.data.length; i++) {
+				st.data[i] = {};
+				copyObj(s.data[i], st.data[i], defaultData);
+			}
+		}
+
+		if (st.granularity < 60e3) {
+			st.granularity = 1e3;
+			st.xMax = null;
+			st.xCount = Math.min(599, st.xCount);
+		}
+
+		settings = st;
+	}
+
+	function getsetSettings(s) {
+		if (arguments.length == 0) {
+			return getSettings();
+		} else {
+			setSettings(s);
+			init();
+		}
+	}
+
 }
 
 
 window.onload = function () {
-	chart = new Chart("#chart", statsd.cache, 0);
+	chart = new Chart("#chart", statsd.cache, statsd.liveCache, 0);
+	chart.settings({
+		data: [
+			{
+				label: "Test0",
+				channel: "test0:counter",
+				color: "#f40",
+				width: 2,
+
+			},
+			{
+				label: "Test1",
+				channel: "test1:counter",
+				color: "#4a0",
+				width: 2,
+			}
+		]
+	});
 }

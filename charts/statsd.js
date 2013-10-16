@@ -515,7 +515,8 @@ function cache(sources, granularity) {
 
 	function refillCallback(error, data) {
 		var c = current,
-			n = next;
+			n = next,
+			cb;
 
 		current = next = null;
 
@@ -531,7 +532,116 @@ function cache(sources, granularity) {
 			if (error === null) {
 				reply(c.from, c.length, c.callback);
 			} else {
-				c.callback.call(this, error, null);
+				cb = c.callback;
+				cb(error, null);
+			}
+		}
+	}
+
+}
+
+function liveCache(sources) {
+	var cacheTs,
+		cacheData = null,
+		current = null,
+		next = null;
+
+	function query(from, length, callback) {
+		if (sources.length == 0) {
+			callback(null, {ts: null, data: []});
+		} else {
+			if (cacheData === null) {
+				refill(from, length, callback);
+			} else {
+				reply(from, length, callback);
+			}
+		}
+	}
+
+	function watch(offset, callback) {
+		if (sources.length == 0) {
+			return null;
+		}
+
+		return liveWatch(sources, function (d) {
+			var expected, i;
+
+			if (cacheData !== null) {
+				expected = cacheTs + cacheData[0].length*1e3;
+				if (d.ts == expected) {
+					for (i = 0; i < cacheData.length; i++) {
+						cacheData[i].push(d.data[i][0]);
+						cacheData[i].shift();
+					}
+					cacheTs += 1e3;
+				} else if (d.ts > expected) {
+					cacheData = null;
+				}
+			}
+			callback(d.ts);
+		});
+	}
+
+	return {query: query, watch: watch}
+
+	function reply(from, length, callback) {
+		var offset,
+			output;
+
+		offset = (from - cacheTs) / 1e3;
+		if (offset < 0) {
+			from -= offset * 1e3;
+			offset = 0;
+		}
+
+		output = {
+			ts: null,
+			data: cacheData.map(function (d) {
+				return d.slice(offset, offset + length);
+			})
+		};
+		if (output.data.length != 0) {
+			output.ts = from;
+		}
+
+		callback(null, output);
+	}
+
+	function refill(from, length, callback) {
+		var q = {
+			from: from,
+			length: length,
+			callback: callback
+		};
+
+		if (current) {
+			next = q;
+		} else {
+			current = q;
+			live(sources, refillCallback);
+		}
+	}
+
+	function refillCallback(error, data) {
+		var c = current,
+			n = next,
+			cb;
+
+		current = next = null;
+
+		if (error === null) {
+			cacheTs = data.ts;
+			cacheData = data.data;
+		}
+
+		if (n) {
+			query(n.from, n.length, n.callback)
+		} else {
+			if (error === null) {
+				reply(c.from, c.length, c.callback);
+			} else {
+				cb = c.callback;
+				cb(error, null);
 			}
 		}
 	}
@@ -545,6 +655,7 @@ return {
 	live: live,
 	liveWatch: liveWatch,
 	cache: cache,
+	liveCache: liveCache,
 	clockSkew: clockSkew
 };
 
