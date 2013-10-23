@@ -5,8 +5,6 @@ statsd.config.timeout = 1000;
 function Chart(svg, fetcherFactory, liveFetcherFactory, clockSkew) {
 	var	svg = d3.select(svg),
 		defaultSettings = {
-			width: 640,
-			height: 480,
 			backgroundColor: "#f8f8f8",
 			fontSize: 12,
 			fontFamily: "sans-serif",
@@ -38,6 +36,8 @@ function Chart(svg, fetcherFactory, liveFetcherFactory, clockSkew) {
 		},
 		margin = {t: 0, r: 0, b: 30, l: 50},
 		settings,
+		outerWidth = 640,
+		outerHeight = 480,
 		width,
 		height,
 		xScale = d3.time.scale(),
@@ -55,6 +55,7 @@ function Chart(svg, fetcherFactory, liveFetcherFactory, clockSkew) {
 		lastUpdate = null;
 
 	this.settings = getsetSettings;
+	this.size = getsetSize;
 
 	clockSkew |= 0;
 	setSettings(defaultSettings);
@@ -154,13 +155,13 @@ function Chart(svg, fetcherFactory, liveFetcherFactory, clockSkew) {
 	function updateSize() {
 		var translate = "translate(" + margin.l + " " + margin.t + ")";
 
-		width = settings.width - margin.l - margin.r;
-		height = settings.height - margin.t - margin.b;
+		width = outerWidth - margin.l - margin.r;
+		height = outerHeight - margin.t - margin.b;
 		xScale.range([0.5, width - 0.5]);
 		yScale.range([height-0.5, 0.5]);
 
-		svg.attr("width", settings.width)
-			.attr("height", settings.height);
+		svg.attr("width", outerWidth)
+			.attr("height", outerHeight);
 
 		svg.selectAll(".background, .mouse")
 			.attr("transform", translate)
@@ -698,6 +699,27 @@ function Chart(svg, fetcherFactory, liveFetcherFactory, clockSkew) {
 		}
 	}
 
+	function getsetSize(w, h) {
+		switch (arguments.length) {
+			case 0:
+				return [outerWidth, outerHeight];
+
+			case 1:
+				outerWidth = w[0];
+				outerHeight = w[1];
+				break;
+
+			default:
+				outerWidth = w;
+				outerHeight = h;
+		}
+
+		updateSize();
+		resetXDomain();
+		redrawXGrid();
+		redrawYGrid();
+		redrawLines();
+	}
 }
 
 
