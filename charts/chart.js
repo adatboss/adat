@@ -238,8 +238,9 @@ function Chart(svg, fetcherFactory, liveFetcherFactory, clockSkew) {
 		if (settings.xMax === null) {
 			n = now();
 			offset = n.getTimezoneOffset() * 60e3;
-			xMax = (+n) + offset;
-			xMax -= xMax%settings.granularity + offset;
+			xMax = (+n) - offset;
+			xMax -= xMax%settings.granularity;
+			xMax += offset;
 		} else {
 			xMax = settings.xMax;
 		}
@@ -388,11 +389,11 @@ function Chart(svg, fetcherFactory, liveFetcherFactory, clockSkew) {
 			until,
 			length;
 
-		from = Math.floor(((+domain[0]) + offset)/settings.granularity - 0.5);
-		from = (from * settings.granularity) - offset;
+		from = Math.floor(((+domain[0]) - offset)/settings.granularity - 0.5);
+		from = (from * settings.granularity) + offset;
 
-		until = Math.ceil(((+domain[1]) + offset)/settings.granularity - 0.5);
-		until = (until * settings.granularity) - offset;
+		until = Math.ceil(((+domain[1]) - offset)/settings.granularity - 0.5);
+		until = (until * settings.granularity) + offset;
 
 		length = (until - from) / settings.granularity + 1;
 
