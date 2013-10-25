@@ -1,745 +1,525 @@
-statsd.config.httpApi = "http://192.168.1.101:5999/";
-statsd.config.wsApi = "ws://192.168.1.101:5999/";
-statsd.config.timeout = 1000;
+function Chart(selector) {
+	var _this = this;
 
-function Chart(svg, fetcherFactory, liveFetcherFactory, clockSkew) {
-	var	svg = d3.select(svg),
-		defaultSettings = {
-			backgroundColor: "#f8f8f8",
-			fontSize: 12,
-			fontFamily: "sans-serif",
-			granularity: 60e3,
-			xMax: null,
-			xCount: 60,
-			xTicks: 5,
-			xGridColor: "#888",
-			xLabelColor: "#000",
-			xLocked: false,
-			timeFormat1: "%m/%d/%y",
-			timeFormat2: "%I:%M %p",
-			yMin: 0,
-			yMax: null,
-			yTicks: 5,
-			yGridColor: "#888",
-			yLabelColor: "#000",
-			yLocked: false,
-			retry: 10e3,
-			autorefresh: true,
-			data: []
-		},
-		defaultData = {
-			label: "?",
-			channel: ".",
-			autoY: true,
-			color: "#f40",
-			width: 1
-		},
-		margin = {t: 0, r: 0, b: 30, l: 50},
-		settings,
-		outerWidth = 640,
-		outerHeight = 480,
-		width,
-		height,
-		xScale = d3.time.scale(),
-		yScale = d3.scale.linear(),
-		fetcher,
-		fetcherN = 0,
-		values,
-		ts,
-		retryTimer = null,
-		xAnchor = null,
-		yAnchor = null,
-		xChanged = false,
-		yChanged = false,
-		stopWatching = null,
-		lastUpdate = null;
+	// Elements
+	var svg = d3.select(selector),
+		graphClipRect,
+		graphG,
+		backgroundRect,
+		yGridG,
+		xGridG,
+		xAxisClipRect,
+		xAxisG,
+		yAxisClipRect,
+		yAxisG,
+		errorClipRect,
+		errorG,
+		errorText,
+		errorRect,
+		mouseRect,
+		xMouseRect,
+		yMouseRect,
+		linesG;
 
-	this.settings = getsetSettings;
-	this.size = getsetSize;
+	// Settings
+	var	setters = {},
+		S = {};
 
-	clockSkew |= 0;
-	setSettings(defaultSettings);
-	createElements();
-	init();
+	addSetting( "width",              "int",          640          );
+	addSetting( "height",             "int",          480          );
+	addSetting( "marginTop",          "int",          0            );
+	addSetting( "marginRight",        "int",          0            );
+	addSetting( "marginBottom",       "int",          30           );
+	addSetting( "marginLeft",         "int",          50           );
+	addSetting( "backgroundColor",    "str",          "#f8f8f8"    );
+	addSetting( "fontSize",           "int",          12           );
+	addSetting( "fontFamily",         "str",          "sans-serif" );
+	addSetting( "xGridLines",         "int",          5            );
+	addSetting( "xGridColor",         "str",          "#888"       );
+	addSetting( "xLabelFormat1",      "str",          "%m/%d/%y"   );
+	addSetting( "xLabelFormat2",      "str",          "%I:%M %p"   );
+	addSetting( "xLabelColor",        "str",          "#000"       );
+	addSetting( "xLocked",            "bool",         false        );
+	addSetting( "yGridLines",         "int",          5            );
+	addSetting( "yGridColor",         "str",          "#888"       );
+	addSetting( "yLocked",            "bool",         false        );
+	addSetting( "errorMsg",           "str",          ""           );
+	addSetting( "data",               "num[][]",      []           );
+	addSetting( "ts",                 "num",          0            );
+	addSetting( "granularity",        "num",          60e3         );
+	addSetting( "lineColors",         "str[]",        []           );
+	addSetting( "lineWidths",         "int[]",        []           );
+	addScaleSetting("xDomain", "xScale", d3.time.scale().domain([0, 3600e3]));
+	addScaleSetting("yDomain", "yScale", d3.scale.linear().domain([0, 10]));
 
-	function init() {
-		showError(null);
-		updateSize();
-		setBackgroundColor();
-		resetXDomain();
-		redrawXGrid();
-		redrawYGrid();
-		resetData();
-		reload();
+	function addSetting(name, type, def) {
+		setters[name] = function (v) {
+			S[name] = coerce[type](v);
+		}
+
+		_this[name] = function (v) {
+			if (arguments.length == 0) {
+				return S[name];
+			} else {
+				setters[name](v);
+				redraw();
+				return _this;
+			}
+		};
+
+		S[name] = def;
 	}
 
+	function addScaleSetting(name, iname, def) {
+		setters[name] = function (v) {
+			S[iname].domain(coerce["num[]"](v));
+			dispatch[name.toLowerCase()].call(_this);
+		}
+		
+		_this[name] = function (v) {
+			if (arguments.length == 0) {
+				return S[iname].domain();
+			} else {
+				setters[name](v);
+				redraw();
+				return _this;
+			}
+		}
+
+		S[iname] = def;
+	}
+
+	_this.settings = function (s) {
+		var k, r = {};
+		if (arguments.length == 0) {
+			for (k in setters)  {
+				r[k] = S[k];
+			}
+			return r;
+		} else {
+			for (k in s) {
+				if (typeof setters[k] != "undefined") {
+				console.log(k, s[k]);
+					setters[k](s[k]);
+				}
+			}
+			redraw();
+			return _this;
+		}
+	};
+
+	// Event handling
+	var dispatch = d3.dispatch(
+			"xdomain",
+			"ydomain",
+			"xdblclick",
+			"ydblclick",
+			"dblclick"
+		),
+		xAnchor = null,
+		yAnchor = null;
+
+	d3.rebind(_this, dispatch, "on")
+
+	// Initialization
+	createElements();
+	redraw();
+
 	function createElements() {
-		var clipId = "clip-" + (+now()) + "-" + Math.ceil(Math.random() * 1e9);
+		var clipId = "clip-" + +new Date + "-" + Math.ceil(Math.random() * 1e9);
 
-		svg.style("font-size", settings.fontSize + "px")
-			.style("font-family", settings.fontFamily);
+		svg.style("overflow", "hidden");
 
-		svg.append("rect")
-			.classed("background", true)
-			.style("shape-rendering", "crispEdges");
-
-		svg.append("clipPath")
-			.classed("clipPath", true)
+		// Graph area
+		graphClipRect = svg.append("clipPath")
 			.attr("id", clipId)
 			.append("rect");
 
-		svg.append("g")
-			.classed("grid", true);
-
-		svg.append("g")
-			.classed("lines", true)
+		graphG = svg.append("g")
 			.attr("clip-path", "url(#" + clipId + ")");
 
-		svg.append("rect")
-			.classed("mouse", true)
-			.style("fill-opacity", 0)
-			.on("mousedown", xMousedown)
-			.on("mouseup", xMouseup)
-			.on("mousemove", xMousemove)
-			.on("mouseout", xMouseout)
-			.on("dblclick", dblclick);
+		backgroundRect = graphG.append("rect")
+			.style("shape-rendering", "crispEdges");
 
-		svg.append("rect")
-			.classed("error", true)
+		xGridG = graphG.append("g")
+			.style("shape-rendering", "crispEdges");
+
+		yGridG = graphG.append("g")
+			.style("shape-rendering", "crispEdges");
+
+		mouseRect = svg.append("rect")
+			.style("fill-opacity", 0)
+			.on("mousedown", xMousedownHandler)
+			.on("mouseup", xMouseupHandler)
+			.on("mousemove", xMousemoveHandler)
+			.on("mouseout", xMouseoutHandler)
+			.on("dblclick", dblclickHandler);
+
+		// X axis
+		xAxisClipRect = svg.append("clipPath")
+			.attr("id", clipId + "-x")
+			.append("rect");
+
+		xAxisG = svg.append("g")
+			.attr("clip-path", "url(#" + clipId + "-x)")
+			.style("text-anchor", "middle");
+
+		xMouseRect = svg.append("rect")
+			.style("fill-opacity", 0)
+			.on("mousedown", xMousedownHandler)
+			.on("mouseup", xMouseupHandler)
+			.on("mousemove", xMousemoveHandler)
+			.on("mouseout", xMouseoutHandler)
+			.on("dblclick", xDblclickHandler);
+
+		// Y axis
+		yAxisClipRect = svg.append("clipPath")
+			.attr("id", clipId + "-y")
+			.append("rect");
+
+		yAxisG = svg.append("g")
+			.attr("clip-path", "url(#" + clipId + "-y)")
+			.style("text-anchor", "end");
+
+		yMouseRect = svg.append("rect")
+			.style("fill-opacity", 0)
+			.on("mousedown", yMousedownHandler)
+			.on("mouseup", yMouseupHandler)
+			.on("mousemove", yMousemoveHandler)
+			.on("mouseout", yMouseoutHandler)
+			.on("dblclick", yDblclickHandler);
+
+		// Lines
+		linesG = graphG.append("g");
+
+		// Error msg
+		errorClipRect = graphG.append("clipPath")
+			.attr("id", clipId + "-err")
+			.append("rect");
+
+		errorG = graphG.append("g")
+			.attr("clip-path", "url(#" + clipId + "-err)");
+
+		errorRect = errorG.append("rect")
 			.style("fill", "rgba(255, 128, 128, 0.75)")
 			.style("stroke", "#f00")
 			.style("shape-rendering", "crispEdges");
 
-		svg.append("text")
-			.classed("error", true)
+		errorText = errorG.append("text")
 			.style("fill", "#000")
 			.style("text-anchor", "middle");
-
-		svg.append("clipPath")
-			.classed("yClipPath", true)
-			.attr("id", clipId + "-y")
-			.append("rect");
-			
-		svg.append("g")
-			.classed("yLabels", true)
-			.attr("clip-path", "url(#" + clipId + "-y)");
-
-		svg.append("rect")
-			.classed("yMouse", true)
-			.style("fill-opacity", 0)
-			.on("mousedown", yMousedown)
-			.on("mouseup", yMouseup)
-			.on("mousemove", yMousemove)
-			.on("mouseout", yMouseout)
-			.on("dblclick", yDblclick);
-
-		svg.append("clipPath")
-			.classed("xClipPath", true)
-			.attr("id", clipId + "-x")
-			.append("rect");
-
-		svg.append("g")
-			.classed("xLabels", true)
-			.attr("clip-path", "url(#" + clipId + "-x)");
-
-		svg.append("rect")
-			.classed("xMouse", true)
-			.style("fill-opacity", 0)
-			.on("mousedown", xMousedown)
-			.on("mouseup", xMouseup)
-			.on("mousemove", xMousemove)
-			.on("mouseout", xMouseout)
-			.on("dblclick", xDblclick);
 	}
 
-	function updateSize() {
-		var translate = "translate(" + margin.l + " " + margin.t + ")";
+	function redraw() {
+		var innerWidth = S.width - S.marginLeft - S.marginRight,
+			innerHeight = S.height - S.marginTop - S.marginBottom,
+			x, y,
+			scale,
+			ticks,
+			line,
+			selection;
 
-		width = outerWidth - margin.l - margin.r;
-		height = outerHeight - margin.t - margin.b;
-		xScale.range([0.5, width - 0.5]);
-		yScale.range([height-0.5, 0.5]);
+		svg
+			.attr("width", S.width)
+			.attr("height", S.height)
+			.style("font-size", S.fontSize + "px")
+			.style("font-family", S.fontFamily);
 
-		svg.attr("width", outerWidth)
-			.attr("height", outerHeight);
+		x = S.marginLeft;
+		y = S.marginTop;
+		graphG
+			.attr("transform", "translate("+ x + " " + y + ")");
 
-		svg.selectAll(".background, .mouse")
-			.attr("transform", translate)
-			.attr("width", width)
-			.attr("height", height);
+		graphClipRect
+			.attr("width", innerWidth)
+			.attr("height", innerHeight);
 
-		svg.select(".clipPath rect")
-			.attr("width", width)
-			.attr("height", height);
-	
-		svg.selectAll(".lines, .grid")
-			.attr("transform", translate);
+		backgroundRect
+			.attr("width", innerWidth)
+			.attr("height", innerHeight)
+			.attr("fill", S.backgroundColor);
 
-		svg.select("rect.error")
-			.attr("x", margin.l + settings.fontSize + 0.5)
-			.attr("y", margin.t + height - 3*settings.fontSize + 0.5)
-			.attr("width", width - 2*settings.fontSize - 1)
-			.attr("height", 2*settings.fontSize);
+		mouseRect
+			.attr("x", x)
+			.attr("y", y)
+			.attr("width", innerWidth)
+			.attr("height", innerHeight);
 
-		svg.select("text.error")
-			.attr("x", margin.l + width/2)
-			.attr("y", margin.t + height - 1.65*settings.fontSize + 0.5);
+		// X axis
 
-		svg.select(".yClipPath rect")
-			.attr("y", margin.t + 1)
-			.attr("width", margin.l)
-			.attr("height", height - 1);
+		scale = roundToHalf(S.xScale.range([0.5, innerWidth-0.5]));
+		ticks = S.xScale.ticks(S.xGridLines);
 
-		svg.select(".yMouse")
-			.attr("transform", "translate(0 " + margin.t + ")")
-			.attr("width", margin.l)
-			.attr("height", height);
+		xAxisClipRect
+			.attr("width", innerWidth)
+			.attr("height", S.marginBottom);
 
-		svg.select(".xClipPath rect")
-			.attr("x", margin.l)
-			.attr("y", margin.t + height)
-			.attr("width", width)
-			.attr("height", margin.b);
+		x = S.marginLeft;
+		y = S.height - S.marginBottom;
+		xAxisG
+			.attr("transform", "translate(" + x + " " + y + ")")
+			.style("fill", S.xLabelColor)
 
-		svg.select(".xMouse")
-			.attr("transform", "translate(" + margin.l + " " + (margin.t + height) + ")")
-			.attr("width", width)
-			.attr("height", margin.b);
-	}
+		xMouseRect
+			.attr("x", x)
+			.attr("y", y)
+			.attr("width", innerWidth)
+			.attr("height", S.marginBottom);
 
-	function setBackgroundColor() {
-		svg.select(".background")
-			.style("fill", settings.backgroundColor);
-	}
+		// Grid
+		selection = xGridG.selectAll("line").data(ticks);
+		selection.exit().remove();
+		selection.enter().append("line");
+		selection
+			.attr("x1", scale)
+			.attr("y1", 0)
+			.attr("x2", scale)
+			.attr("y2", innerHeight)
+			.style("stroke", S.xGridColor);
 
-	function showError(msg) {
-		if (retryTimer !== null) {
-			clearTimeout(retryTimer);
-		}
+		// Labels
+		selection = xAxisG.selectAll("g").data(ticks);
+		selection.exit().remove();
+		selection.enter().append("g");
+		selection.selectAll("text").remove();
+		selection.append("text")
+			.attr("x", scale)
+			.attr("y", 1.1*S.fontSize)
+			.text(d3.time.format(S.xLabelFormat1));
+		selection.append("text")
+			.attr("x", scale)
+			.attr("y", 2.2*S.fontSize)
+			.text(d3.time.format(S.xLabelFormat2));
 
-		if (msg !== null) {
-			svg.select("text.error")
-				.text(msg);
-			svg.selectAll(".error")
-				.style("display", null);
+		// Y axis
 
-			retryTimer = setTimeout(reload, settings.retry);
-		} else {
-			svg.selectAll(".error")
-				.style("display", "none");
-		}
-	}
+		scale = roundToHalf(S.yScale.range([innerHeight-0.5, -0.5]));
+		ticks = S.yScale.ticks(S.yGridLines);
 
-	function resetXDomain() {
-		var n,
-			offset,
-			xMax,
-			xMin;
+		yAxisClipRect
+			.attr("width", S.marginLeft)
+			.attr("height", innerHeight);
 
-		if (settings.xMax === null) {
-			n = now();
-			offset = n.getTimezoneOffset() * 60e3;
-			xMax = (+n) - offset;
-			xMax -= xMax%settings.granularity;
-			xMax += offset;
-		} else {
-			xMax = settings.xMax;
-		}
-		xMin = xMax - settings.xCount*settings.granularity;
-		xScale.domain([xMin, xMax]);
-	}
+		yAxisG
+			.attr("transform", "translate(0 " + S.marginTop + ")")
+			.style("fill", S.xLabelColor);
 
-	function resetYDomain() {
-		var yMin = settings.yMin,
-			yMax = settings.yMax,
-			i, j;
-			
-		if (yMin === null) {
-			yMin = Number.POSITIVE_INFINITY;
-			if (typeof values[0] != "undefined") {
-				for (i = 0; i < settings.data.length; i++) {
-					if (settings.data[i].autoY) {
-						for (j = 0; j < values[i].length; j++) {
-							if (values[i][j] < yMin) {
-								yMin = values[i][j];
-							}
-						}
-					}
-				}
-			}
-		}
+		yMouseRect
+			.attr("y", S.marginTop)
+			.attr("width", S.marginLeft)
+			.attr("height", innerHeight);
 
-		if (yMax === null) {
-			yMax = Number.NEGATIVE_INFINITY;
-			if (typeof values[0] != "undefined") {
-				for (i = 0; i < settings.data.length; i++) {
-					if (settings.data[i].autoY) {
-						for (j = 0; j < values[i].length; j++) {
-							if (values[i][j] > yMax) {
-								yMax = values[i][j];
-							}
-						}
-					}
-				}
-			}
-		}
+		// Grid
+		selection = yGridG.selectAll("line").data(ticks);
+		selection.exit().remove();
+		selection.enter().append("line");
+		selection
+			.attr("x1", 0)
+			.attr("y1", scale)
+			.attr("x2", innerWidth)
+			.attr("y2", scale)
+			.style("stroke", S.yGridColor);
 
-		if (isFinite(yMin) && isFinite(yMax)) {
-			if (yMin == yMax) {
-				if (yMin == 0) {
-					yMax = 1;
-				} else {
-					yMin /= 2;
-					yMax *= 1.5;
-				}
-			}
+		// Labels
+		selection = yAxisG.selectAll("text").data(ticks);
+		selection.exit().remove();
+		selection.enter().append("text");
+		selection
+			.attr("x", S.marginLeft - 2)
+			.attr("y", scale)
+			.text(formatNumber);
 
-			yScale.domain([yMin, yMax]);
-			if (settings.yMin == null || settings.yMax == null) {
-				yScale.nice();
-			}
-		}
-	}
+		// Error message
+		errorClipRect
+			.attr("width", innerWidth - 2*S.fontSize)
+			.attr("height", 2*S.fontSize);
 
-	function redrawLines() {
-		var lines = svg.select(".lines").selectAll("path").data(values),
-			line = d3.svg.line()
-				.x(function (d, i) {
-					return xScale(ts + (i + 0.5)*settings.granularity);
-				})
-			.y(yScale);
+		x = S.fontSize;
+		y = innerHeight - 3*S.fontSize;
+		errorG
+			.attr("transform", "translate(" + x + " " + y + ")")
+			.style("display", S.errorMsg == "" ? "none" : null);
 
-		lines.enter().append("path");
-		lines.exit().remove();
-	
-		lines.attr("d", line)
+		errorRect
+			.attr("x", 0.5)
+			.attr("y", 0.5)
+			.attr("width", innerWidth - 2*S.fontSize - 1)
+			.attr("height", 2*S.fontSize - 1);
+
+		errorText
+			.attr("x", innerWidth / 2)
+			.attr("y", S.marginBottom - 1.15*S.fontSize)
+			.text(S.errorMsg);
+
+		// Lines
+		line = d3.svg.line()
+			.defined(function (d) {
+				return isFinite(d);
+			})
+			.x(function (d, i) {
+				return S.xScale(S.ts + (i + 0.5)*S.granularity);
+			})
+			.y(S.yScale);
+
+		selection = linesG.selectAll("path").data(S.data);
+		selection.enter().append("path");
+		selection.exit().remove();
+		selection
+			.attr("d", line)
+			.attr("fill", "none")
 			.attr("stroke", function (d, i) {
-				return settings.data[i].color;
+				return typeof S.lineColors[i] != "undefined" ?
+					S.lineColors[i] : "#000";
 			})
 			.attr("stroke-width", function (d, i) {
-				return settings.data[i].width;
-			})
-			.attr("fill", "none");
+				return typeof S.lineWidths[i] != "undefined" ?
+					S.lineWidths[i] : 1;
+			});
 	}
 
-	function redrawXGrid() {
-		var ticks = xScale.ticks(settings.xTicks),
-			grid = svg.select(".grid").selectAll(".xGrid").data(ticks),
-			labels1 = svg.select(".xLabels").selectAll("text.l1").data(ticks),
-			labels2 = svg.select(".xLabels").selectAll("text.l2").data(ticks);
+	// Event handlers
 
-		grid.enter().append("line")
-			.classed("xGrid", true)
-			.style("stroke", settings.xGridColor)	
-			.style("shape-rendering", "crispEdges");
-		grid.exit().remove();
-		grid.attr("x1", roundX)
-			.attr("y1", 0)
-			.attr("x2", roundX)
-			.attr("y2", height);
-
-		labels1.exit().remove();
-		labels1.enter().append("text")
-			.classed("l1", true)
-			.style("text-anchor", "middle")
-			.style("fill", settings.xLabelColor);
-		labels1.text(d3.time.format(settings.timeFormat1))
-			.attr("x", function (d, i) { return margin.l + roundX(d, i); })
-			.attr("y", margin.t + height + 1.1*settings.fontSize);
-
-		labels2.exit().remove();
-		labels2.enter().append("text")
-			.classed("l2", true)
-			.style("text-anchor", "middle")
-			.style("fill", settings.xLabelColor);
-		labels2.text(d3.time.format(settings.timeFormat2))
-			.attr("x", function (d, i) { return margin.l + roundX(d, i); })
-			.attr("y", margin.t + height + 2.2*settings.fontSize);
-	}
-
-	function redrawYGrid() {
-		var ticks = yScale.ticks(settings.yTicks),
-			grid = svg.select(".grid").selectAll(".yGrid").data(ticks),
-			labels = svg.select(".yLabels").selectAll("text").data(ticks);
-
-		grid.exit().remove();
-		grid.enter().append("line")
-			.classed("yGrid", true)
-			.style("stroke", settings.yGridColor)
-			.style("shape-rendering", "crispEdges");
-		grid.attr("x1", 0)
-			.attr("y1", roundY)
-			.attr("x2", width)
-			.attr("y2", roundY)
-
-		labels.exit().remove();
-		labels.enter().append("text")
-			.style("text-anchor", "end")
-			.style("fill", settings.yLabelColor);
-		labels.text(formatNumber)
-			.attr("x", margin.l-2)
-			.attr("y", function (d, i) { return margin.t + roundY(d, i); });
-
-	}
-
-	function reload() {
-		var N = fetcherN,
-			offset = now().getTimezoneOffset() * 60e3,
-			domain = xScale.domain(),
-			from,
-			until,
-			length;
-
-		from = Math.floor(((+domain[0]) - offset)/settings.granularity - 0.5);
-		from = (from * settings.granularity) + offset;
-
-		until = Math.ceil(((+domain[1]) - offset)/settings.granularity - 0.5);
-		until = (until * settings.granularity) + offset;
-
-		length = (until - from) / settings.granularity + 1;
-
-		fetcher.query(from, length, function (err, d) {
-			if (fetcherN != N) {
-				return;
-			}
-	
-			showError(err);
-			if (err !== null) {
-				return;
-			}
-
-			setData(d);
-		});
-	}
-
-	function setData(d) {
-		values = d.data;
-		ts = d.ts;
-		if (!yChanged) {
-			resetYDomain();
-		}
-		redrawYGrid();
-		redrawLines();
-	}
-
-	function resetData() {
-		var channels = settings.data.map(function (e) { return e.channel; }),
-			ff;
-
-		if (settings.granularity != 1e3) {
-			ff = fetcherFactory;
-		} else {
-			ff = liveFetcherFactory;
-		}
-
-		fetcher = ff(channels, settings.granularity);
-		fetcherN++;
-		if (settings.autorefresh) {
-			startWatching();
-		}
-		values = [];
-		ts = null;
-	}
-
-	function startWatching() {
-		var N = fetcherN,
-			offset = now().getTimezoneOffset() * 60e3;
-
-		if (stopWatching !== null) {
-			stopWatching();
-		}
-
-		stopWatching = fetcher.watch(offset, function (ts) {
-			var d, t;
-
-			clockSkew += settings.granularity + ts - now().getTime();
-	
-			if (fetcherN != N) {
-				return;
-			}
-
-			if (settings.granularity != 1e3) {
-				if (!xChanged) {
-					resetXDomain();
-					redrawXGrid();
-					redrawLines();
-				}
-
-				d = xScale.domain();
-				if (ts > d[0] && ts < d[1]) {
-					reload();
-				}
-			} else {
-				d = xScale.domain();
-				t = lastUpdate != null ? ts - lastUpdate : 1e3;
-				lastUpdate = ts;
-				xScale.domain([+d[0] + t, +d[1] + t]);
-				redrawXGrid();
-				redrawLines();
-				reload();
-			}
-		});
-	}
-
-	function xMousedown() {
-		if (settings.xLocked) {
+	function xMousedownHandler() {
+		d3.event.preventDefault();
+		if (S.xLocked) {
 			return;
 		}
-
-		xAnchor = +xScale.invert(d3.mouse(this)[0]);
-		d3.event.preventDefault();
+		var xy = d3.mouse(d3.event.target);
+		xAnchor = +S.xScale.invert(xy[0]);
+		mouseRect.style("cursor", "ew-resize");
+		xMouseRect.style("cursor", "ew-resize");
 	}
 
-	function xMouseup() {
+	function xMouseupHandler() {
 		xAnchor = null;
+		mouseRect.style("cursor", null);
+		xMouseRect.style("cursor", null);
 	}
 
-	function xMousemove() {
-		var t = xScale.invert(d3.mouse(this)[0]),
-			d = xScale.domain();
-
+	function xMousemoveHandler() {
+		var xy, t, d;
 		if (xAnchor === null) {
-			return;
+			return null;
 		}
-
-		d = [+d[0], +d[1]];
-
+		xy = d3.mouse(d3.event.target);
+		t = +S.xScale.invert(xy[0]);
+		d = S.xScale.domain();
 		if (d3.event.shiftKey) {
-			d[0] = d[1] - (d[1] - xAnchor)/(d[1] - t)*(d[1] - d[0]);
+			d[0] = +d[1] - (xAnchor - +d[1]) / (t - +d[1]) * (+d[1] - +d[0]);
 		} else {
-			d[0] += xAnchor - t;
-			d[1] += xAnchor - t;
+			d[0] = +d[0] + (xAnchor - t);
+			d[1] = +d[1] + (xAnchor - t);
 		}
-		xScale.domain(d);
-		xChanged = true;
-		redrawXGrid();
-		redrawLines();
-		reload();
+		_this.xDomain(d);
+		redraw();
 	}
 
-	function xMouseout() {
-		var rtg = d3.select(d3.event.relatedTarget);
-		if (rtg.size() && !rtg.classed("mouse") && !rtg.classed("xMouse")) {
+	function xMouseoutHandler() {
+		var rtg = d3.event.relatedTarget;
+		if (rtg != mouseRect[0][0] && rtg != xMouseRect[0][0]) {
 			xAnchor = null;
+			mouseRect.style("cursor", null);
+			xMouseRect.style("cursor", null);
 		}
 	}
 
-	function xDblclick() {
-		xChanged = false;
-		resetXDomain();
-		redrawXGrid();
-		redrawLines();
-		reload();
+	function xDblclickHandler() {
+		dispatch.xdblclick.call(_this);
 	}
 
-	function yMousedown() {
-		if (settings.yLocked) {
-			return;
-		}
-
-		yAnchor = yScale.invert(d3.mouse(this)[1]);
+	function yMousedownHandler() {
 		d3.event.preventDefault();
+		if (S.yLocked) {
+			return
+		}
+		var xy = d3.mouse(d3.event.target);
+		yAnchor = S.yScale.invert(xy[1]);
+		yMouseRect.style("cursor", "ns-resize");
 	}
 
-	function yMouseup() {
+	function yMouseupHandler() {
 		yAnchor = null;
+		yMouseRect.style("cursor", null);
 	}
 
-	function yMousemove() {
-		var v = yScale.invert(d3.mouse(this)[1]),
-			d = yScale.domain();
-
+	function yMousemoveHandler() {
+		var xy, t, d;
 		if (yAnchor === null) {
-			return;
+			return null;
 		}
-
+		xy = d3.mouse(d3.event.target);
+		t = S.yScale.invert(xy[1]);
+		d = S.yScale.domain();
 		if (d3.event.shiftKey) {
-			d[1] = d[0] + (d[0] - yAnchor)/(d[0] - v)*(d[1] - d[0]);
+			d[1] = d[0] + (yAnchor - d[0]) / (t - d[0]) * (d[1] - d[0]);
 		} else {
-			d[0] += yAnchor - v;
-			d[1] += yAnchor - v;
+			d[0] = d[0] + (yAnchor - t);
+			d[1] = d[1] + (yAnchor - t);
 		}
-		yScale.domain(d);
-		yChanged = true;
-		redrawYGrid();
-		redrawLines();
+		_this.yDomain(d);
+		redraw();
 	}
 
-	function yMouseout() {
+	function yMouseoutHandler() {
 		yAnchor = null;
+		yMouseRect.style("cursor", null);
 	}
 
-	function yDblclick() {
-		yChanged = false;
-		resetYDomain();
-		redrawYGrid();
-		redrawLines();
-	}
-	
-	function dblclick() {
-		xChanged = false;
-		resetXDomain();
-		redrawXGrid();
-		yChanged = false;
-		resetYDomain();
-		redrawYGrid();
-		redrawLines();
-		reload();
+	function yDblclickHandler() {
+		dispatch.ydblclick.call(_this);
 	}
 
-	function now() {
-		return new Date((+new Date) + clockSkew);
+	function dblclickHandler() {
+		dispatch.dblclick.call(_this);
 	}
 
-	function roundX(d) {
-		return Math.round(xScale(d) - 0.5) + 0.5;
-	}
-
-	function roundY(d) {
-		return Math.round(yScale(d) - 0.5) + 0.5;
+	// Helper functions
+	function roundToHalf(f) {
+		return function (v) {
+			return Math.round(f(v) - 0.5) + 0.5;
+		};
 	}
 
 	function formatNumber(x) {
-		var PFX = ["", "k", "M", "G", "T", "P", "E", "Z", "Y"],
-			pfx = ["", "m", "µ", "n", "p", "f", "a", "z", "y"],
-			s = x < 0 ? "-" : "",
-			i = 0, j = 0,
-			a, b, u,
+		var suffixes = "kMGTPEZY",
+			sgn = x < -1 ? "-" : "",
+			n = 1, ni, d, ds = "", fs, is, sfx = "",
+			i;
 
+		if (!isFinite(x)) {
+			return "#";
+		}
 		x = Math.abs(x);
-
-		if (x == 0) {
-			return "0";
+		for (i = 10; Math.round(10e3 * x / i) >= 10e3; i *= 10) {
+			n++;
 		}
-
-		if (x < 1) {
-			while (x < 1 && i < pfx.length-1) {
-				x *= 1000;
-				i++;
-			}
-			u = pfx[i];
-		} else {
-			while (x >= 1000 && i < PFX.length-1) {
-				x /= 1000;
-				i++;
-			}
-			u = PFX[i];
+		ni = (n - 2)%3 + 2;
+		d = Math.round(10e3 * x / i);
+		if (isNaN(d)) {
+			return "#";
 		}
-
-		while (Math.round(x) < 1000) {
-			x *= 10;
-			j++;
+		for (i = 0; i < 4; i++) {
+			ds = ""+(d%10) + ds;
+			d = (d - d%10) / 10;
 		}
-		x = Math.round(x) + "";
-		a = x.substr(0, 4-j);
-		b = x.substr(4-j);
-		for (i = 0; i < b.length; i++) {
-			if (b[i] != "0") {
-				a = a + "." + b;
-				break;
-			}
+		is = ds.slice(0, ni);
+		fs = ds.slice(ni);
+		i = Math.floor((n - 2) / 3);
+		if (i > 0) {
+			sfx = i > suffixes.length ? "e"+(3*i) : suffixes[i-1];
 		}
-
-		return s + a + u;
+		return sgn + is + (+fs ? "." + fs : "") + sfx;
 	}
 
-	function copyObj(src, dst, def) {
-		if (def === null) {
-			def = src;
-		}
-		for (var k in def) {
-			if (typeof src[k] != "undefined") {
-				dst[k] = src[k];
-			} else {
-				dst[k] = def[k];
-			}
-		}
-		return dst;
-	}
+	var coerce = {
+		"int":     function (v) { return v|0;  },
+		"str":     function (v) { return ""+v; },
+		"num":     function (v) { return +v;   },
+		"bool":    function (v) { return !!v;  },
+		"int[]":   function (v) { return v.map ? v.map(coerce["int"]) : []; },
+		"str[]":   function (v) { return v.map ? v.map(coerce["str"]) : []; },
+		"num[]":   function (v) { return v.map ? v.map(coerce["num"]) : []; },
+		"num[][]": function (v) { return v.map ? v.map(coerce["num[]"]) : []; }
+	};
 
-	function getSettings() {
-		var st = copyObj(settings, {}, null),
-			i;
-
-		st.data = [];
-		for (i = 0; i < settings.data.length; i++) {
-			st.data[i] = copyObj(settings.data[i], {}, null);
-		}
-
-		return st;
-	}
-
-	function setSettings(s) {
-		var st = copyObj(s, {}, defaultSettings),
-			i;
-
-		st.data = [];
-		if (typeof s.data != "undefined") {
-			for (i = 0; i < s.data.length; i++) {
-				st.data[i] = {};
-				copyObj(s.data[i], st.data[i], defaultData);
-			}
-		}
-
-		if (st.granularity < 60e3) {
-			st.granularity = 1e3;
-			st.xMax = null;
-			st.xCount = Math.min(599, st.xCount);
-		}
-
-		settings = st;
-	}
-
-	function getsetSettings(s) {
-		if (arguments.length == 0) {
-			return getSettings();
-		} else {
-			setSettings(s);
-			init();
-		}
-	}
-
-	function getsetSize(w, h) {
-		switch (arguments.length) {
-			case 0:
-				return [outerWidth, outerHeight];
-
-			case 1:
-				outerWidth = w[0];
-				outerHeight = w[1];
-				break;
-
-			default:
-				outerWidth = w;
-				outerHeight = h;
-		}
-
-		updateSize();
-		resetXDomain();
-		redrawXGrid();
-		redrawYGrid();
-		redrawLines();
-	}
-}
-
-
-window.onload = function () {
-	chart = new Chart("#chart", statsd.cache, statsd.liveCache, 0);
-	chart.settings({
-		data: [
-			{
-				label: "Test0",
-				channel: "test0:counter",
-				color: "#f40",
-				width: 2,
-
-			},
-			{
-				label: "Test1",
-				channel: "test1:counter",
-				color: "#4a0",
-				width: 2,
-			}
-		]
-	});
 }
