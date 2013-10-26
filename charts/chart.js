@@ -410,7 +410,7 @@ function Chart(selector) {
 			d[0] = +d[0] + (xAnchor - t);
 			d[1] = +d[1] + (xAnchor - t);
 		}
-		_this.xDomain(d);
+		setters.xDomain(d);
 		redraw();
 	}
 
@@ -456,7 +456,7 @@ function Chart(selector) {
 			d[0] = d[0] + (yAnchor - t);
 			d[1] = d[1] + (yAnchor - t);
 		}
-		_this.yDomain(d);
+		setters.yDomain(d);
 		redraw();
 	}
 
