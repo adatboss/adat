@@ -1,7 +1,7 @@
 package main
 
 import (
-	"admin/uuid"
+	"adat/uuid"
 	"net/http"
 	"strings"
 )

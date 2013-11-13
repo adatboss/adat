@@ -1,8 +1,8 @@
 package access
 
 import (
-	"admin/qu"
-	"admin/uuid"
+	"adat/qu"
+	"adat/uuid"
 	"database/sql"
 )
 

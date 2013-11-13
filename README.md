@@ -1,7 +1,7 @@
 
 
-AZ Admin
-========
+Adat Server
+===========
 
 
 Installation

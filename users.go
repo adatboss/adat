@@ -1,8 +1,8 @@
 package main
 
 import (
-	"admin/access"
-	"admin/uuid"
+	"adat/access"
+	"adat/uuid"
 	"code.google.com/p/go.crypto/bcrypt"
 	"database/sql"
 	"net/http"

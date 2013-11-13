@@ -1,8 +1,8 @@
 package main
 
 import (
-	"admin/access"
-	"admin/uuid"
+	"adat/access"
+	"adat/uuid"
 	"database/sql"
 	"net/http"
 	"time"

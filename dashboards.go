@@ -1,9 +1,9 @@
 package main
 
 import (
-	"admin/access"
-	"admin/pgarray"
-	"admin/uuid"
+	"adat/access"
+	"adat/pgarray"
+	"adat/uuid"
 	"database/sql"
 	"log"
 	"net/http"
