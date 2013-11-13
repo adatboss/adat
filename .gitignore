@@ -1,5 +1,4 @@
 db/dbconf.yml
-admin
-statsd/statsd
+adat
 .env
 seeder/seeder
